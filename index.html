@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Импорт лидов • Обновление Excel</title>
+    <!-- SheetJS library for Excel parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <style>
+         :root {
+            --bg: #0b0f1a;
+            --card: rgba(255, 255, 255, 0.06);
+            --card-strong: rgba(255, 255, 255, 0.12);
+            --text: #e6e9ef;
+            --muted: #a7b0c0;
+            --accent1: #6ea8fe;
+            /* мягкий синий */
+            --accent2: #9a7bff;
+            /* фиолетовый */
+            --accent3: #4dd4ac;
+            /* мятный */
+            --danger: #ff6b6b;
+            --ok: #2fd27a;
+            --ring: rgba(122, 164, 255, 0.5);
+            --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+        }
+        
+        @media (prefers-color-scheme: light) {
+             :root {
+                --bg: #f6f7fb;
+                --card: rgba(0, 0, 0, 0.04);
+                --card-strong: rgba(0, 0, 0, 0.08);
+                --text: #12141a;
+                --muted: #5a6270;
+                --ring: rgba(90, 133, 255, 0.35);
+                --shadow: 0 20px 50px rgba(10, 10, 30, 0.1);
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        html,
+        body {
+            height: 100%;
+        }
+        
+        body {
+            margin: 0;
+            font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Segoe UI Emoji";
+            color: var(--text);
+            background: radial-gradient(1200px 600px at 10% -10%, rgba(110, 168, 254, 0.2), transparent 60%), radial-gradient(1000px 600px at 100% 10%, rgba(154, 123, 255, 0.18), transparent 60%), linear-gradient(180deg, rgba(77, 212, 172, 0.08), transparent 30%), var(--bg);
+            display: grid;
+            place-items: start center;
+        }
+        
+        .wrap {
+            width: min(100%, 1000px);
+            padding: 28px 18px 72px;
+        }
+        
+        .hero {
+            display: grid;
+            gap: 8px;
+            margin: 18px 0 22px;
+            text-align: center;
+        }
+        
+        h1 {
+            margin: 0;
+            font-weight: 750;
+            letter-spacing: 0.2px;
+            font-size: clamp(22px, 3.6vw, 34px);
+        }
+        
+        .subtitle {
+            font-size: clamp(14px, 1.6vw, 16px);
+            color: var(--muted);
+        }
+        
+        .panel {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+            background-color: var(--card);
+            border: 1px solid var(--card-strong);
+            border-radius: 22px;
+            box-shadow: var(--shadow);
+            padding: clamp(18px, 3vw, 28px);
+            backdrop-filter: saturate(120%) blur(6px);
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: clamp(16px, 3vw, 26px);
+        }
+        
+        @media (max-width: 880px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* Upload Card */
+        
+        .dropzone {
+            position: relative;
+            border: 2px dashed rgba(255, 255, 255, 0.22);
+            border-radius: 18px;
+            padding: clamp(22px, 3vw, 34px);
+            display: grid;
+            place-items: center;
+            gap: 12px;
+            text-align: center;
+            transition: 0.25s ease;
+            background: radial-gradient(600px 180px at 50% 0, rgba(110, 168, 254, 0.12), transparent 70%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%);
+            cursor: pointer;
+            min-height: 240px;
+        }
+        
+        .dropzone.dragover {
+            border-color: transparent;
+            box-shadow: inset 0 0 0 2px var(--ring), 0 10px 30px rgba(110, 168, 254, 0.15);
+            transform: translateY(-1px);
+            background: radial-gradient(600px 220px at 50% 0, rgba(110, 168, 254, 0.22), transparent 70%), linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 40%);
+        }
+        
+        .dz-icon {
+            width: 62px;
+            height: 62px;
+            opacity: 0.95;
+            filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.25));
+        }
+        
+        .dz-title {
+            font-weight: 700;
+            font-size: 18px;
+        }
+        
+        .dz-sub {
+            color: var(--muted);
+            font-size: 14px;
+        }
+        
+        .btns {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            appearance: none;
+            border: 0;
+            cursor: pointer;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-weight: 650;
+            background: linear-gradient(180deg, var(--accent1), var(--accent2));
+            color: white;
+            box-shadow: 0 10px 30px rgba(110, 168, 254, 0.25);
+            transition: transform 0.06s ease, filter 0.2s ease;
+        }
+        
+        .btn:hover {
+            filter: brightness(1.05);
+        }
+        
+        .btn:active {
+            transform: translateY(1px);
+        }
+        
+        .btn.secondary {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+            color: var(--text);
+            border: 1px solid var(--card-strong);
+            box-shadow: none;
+        }
+        
+        .btn.ghost {
+            background: transparent;
+            border: 1px dashed var(--card-strong);
+        }
+        
+        .hint {
+            color: var(--muted);
+            font-size: 12px;
+            text-align: center;
+            margin-top: 6px;
+        }
+        /* Details */
+        
+        .details {
+            display: grid;
+            gap: 12px;
+        }
+        
+        .row {
+            display: grid;
+            gap: 6px;
+        }
+        
+        .label {
+            color: var(--muted);
+            font-size: 13px;
+        }
+        
+        .value {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--card-strong);
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-height: 44px;
+        }
+        
+        .value b {
+            font-weight: 750;
+        }
+        
+        .chips {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .chip {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            border: 1px solid var(--card-strong);
+            background: rgba(255, 255, 255, 0.06);
+        }
+        
+        .status {
+            font-weight: 700;
+        }
+        
+        .status.ok {
+            color: var(--ok);
+        }
+        
+        .status.err {
+            color: var(--danger);
+        }
+        /* Footer */
+        
+        .footer {
+            margin-top: 24px;
+            color: var(--muted);
+            font-size: 13px;
+            text-align: center;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        a.link {
+            color: var(--accent1);
+            text-decoration: none;
+        }
+        
+        a.link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <header class="hero">
+            <h1>Импорт лидов • Обновление Excel</h1>
+            <p class="subtitle">
+                Загрузите исходный файл (.xlsx/.xls/.csv) — получите обновлённый Excel в фирменном формате. Валидации и проверку дублей по API подключим на следующем шаге.
+            </p>
+        </header>
+
+        <section class="grid">
+            <!-- Upload / Primary Card -->
+            <div class="panel">
+                <label for="file-input" class="dropzone" id="dropzone" tabindex="0" aria-label="Перетащите Excel сюда или нажмите, чтобы выбрать файл" role="button">
+                        <!-- Cloud / Upload Icon -->
+                        <svg
+                            class="dz-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.58-1.65A4.5 4.5 0 1 1 19 18H7Z"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                            />
+                            <path
+                                d="M12 13V6m0 0-3 3m3-3 3 3"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                        <div class="dz-title">Перетащите файл Excel сюда</div>
+                        <div class="dz-sub">или нажмите — <strong>выберите файл</strong> на устройстве</div>
+                        <div class="btns" style="margin-top: 10px">
+                            <button class="btn" type="button" id="chooseBtn">Выбрать файл</button>
+                            <button class="btn secondary" type="button" id="resetBtn">Сбросить</button>
+                        </div>
+                        <input id="file-input" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+                        <p class="hint">Поддерживаются: .xlsx, .xls, .xlsm, .csv • Макс. 20 МБ</p>
+                    </label>
+            </div>
+
+            <!-- Details / Actions Card -->
+            <div class="panel details" aria-live="polite">
+                <div class="row">
+                    <div class="label">Выбранный файл</div>
+                    <div class="value" id="fileMeta">
+                        <span>—</span>
+                        <span class="chips" id="chips"></span>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="label">Статус подготовки</div>
+                    <div class="value">
+                        <span class="status" id="status">Ожидаю файл…</span>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="label">Действия</div>
+                    <div class="value" style="justify-content: flex-start; gap: 10px">
+                        <button class="btn" id="processBtn" disabled>
+                                <!-- Download icon -->
+                                <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    style="vertical-align: middle; margin-right: 8px"
+                                >
+                                    <path
+                                        d="M12 3v10m0 0 4-4m-4 4-4-4"
+                                        stroke="currentColor"
+                                        stroke-width="1.6"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                    <path
+                                        d="M5 21h14a2 2 0 0 0 2-2v-3"
+                                        stroke="currentColor"
+                                        stroke-width="1.6"
+                                        stroke-linecap="round"
+                                    />
+                                </svg>
+                                Обработать и скачать Excel
+                            </button>
+                        <button class="btn secondary" id="templateBtn" type="button">Скачать шаблон Excel</button>
+                    </div>
+                    <div class="hint">
+                        Шаблон соответствует стандарту Gravity (порядок колонок и формат значений). Проверки дублей и нормализация телефонов будут включены позже.
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="label">Подсказки</div>
+                    <div class="value" style="flex-direction: column; align-items: flex-start; gap: 6px">
+                        <div>• Файл желательно с телефонами в формате <b>+380XXXXXXXXX</b>.</div>
+                        <div>• После интеграции API здесь появится индикатор проверки дублей и отчёт.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <p class="footer">
+            v0 • UI-макет. JS-обработчик файла и запросы к KeyCRM API помечены в коде как <code>TODO</code>.
+        </p>
+    </div>
+
+    <script>
+        /**
+         * Имитация пайплайна: пока мы не подключили реальные библиотеки работы с Excel,
+         * просто создаём копию загруженного файла с новым именем и отдаём пользователю.
+         * Позже здесь появится:
+         *  - парсинг Excel (SheetJS или серверная обработка),
+         *  - нормализация данных,
+         *  - запросы в KeyCRM для проверки дублей по телефону/email,
+         *  - генерация XLSX по стандарту Gravity.
+         */
+
+        const dz = document.getElementById("dropzone");
+        const fileInput = document.getElementById("file-input");
+        const chooseBtn = document.getElementById("chooseBtn");
+        const resetBtn = document.getElementById("resetBtn");
+        const processBtn = document.getElementById("processBtn");
+        const templateBtn = document.getElementById("templateBtn");
+        const fileMeta = document.getElementById("fileMeta");
+        const chips = document.getElementById("chips");
+        const statusEl = document.getElementById("status");
+
+        let currentFile = null;
+        let downloadUrl = null;
+
+        const fmtSize = (bytes) => {
+            if (!Number.isFinite(bytes)) return "—";
+            const units = ["Б", "КБ", "МБ", "ГБ"];
+            let i = 0;
+            let v = bytes;
+            while (v >= 1024 && i < units.length - 1) {
+                v /= 1024;
+                i++;
+            }
+            return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+        };
+
+        const setStatus = (text, type = null) => {
+            statusEl.textContent = text;
+            statusEl.classList.remove("ok", "err");
+            if (type) statusEl.classList.add(type);
+        };
+
+        const showMeta = (file) => {
+            const name = document.createElement("span");
+            name.innerHTML = `<b>${file.name}</b> · ${fmtSize(file.size)}`;
+            const ext = (file.name.split(".").pop() || "").toLowerCase();
+            const extChip = document.createElement("span");
+            extChip.className = "chip";
+            extChip.textContent = ext ? `.${ext}` : "файл";
+
+            fileMeta.firstElementChild.replaceWith(name);
+            chips.innerHTML = "";
+            chips.appendChild(extChip);
+        };
+
+        const acceptExt = ["xlsx", "xls", "xlsm", "csv"];
+        const validFile = (file) => {
+            const ext = (file.name.split(".").pop() || "").toLowerCase();
+            if (!acceptExt.includes(ext)) return false;
+            const max = 20 * 1024 * 1024; // 20MB
+            return file.size <= max;
+        };
+
+        const assignFile = (file) => {
+            if (!validFile(file)) {
+                setStatus(
+                    "Неподдерживаемый тип или слишком большой файл (макс. 20 МБ).",
+                    "err"
+                );
+                currentFile = null;
+                processBtn.disabled = true;
+                fileMeta.firstElementChild.textContent = "—";
+                chips.innerHTML = "";
+                return;
+            }
+            currentFile = file;
+            showMeta(file);
+            processBtn.disabled = false;
+            setStatus("Готов к обработке");
+        };
+
+        chooseBtn.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) assignFile(file);
+        });
+
+        // Drag and drop handlers
+        ["dragenter", "dragover"].forEach((evt) =>
+            dz.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dz.classList.add("dragover");
+            })
+        );
+        ["dragleave", "drop"].forEach((evt) =>
+            dz.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dz.classList.remove("dragover");
+            })
+        );
+        dz.addEventListener("drop", (e) => {
+            const file =
+                e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file) assignFile(file);
+        });
+
+        // Keyboard activation for accessibility
+        dz.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+
+        resetBtn.addEventListener("click", () => {
+            currentFile = null;
+            if (downloadUrl) {
+                URL.revokeObjectURL(downloadUrl);
+                downloadUrl = null;
+            }
+            fileInput.value = "";
+            processBtn.disabled = true;
+            setStatus("Ожидаю файл…");
+            fileMeta.firstElementChild.textContent = "—";
+            chips.innerHTML = "";
+        });
+
+        // Нормализация телефона (как в server.js)
+        const normalizeUaPhone = (phone) => {
+            let s = String(phone || "").trim();
+            if (!s) return "";
+            s = s.replace(/[\s()-]/g, "");
+            if (s.startsWith("00")) s = "+" + s.slice(2);
+            if (s.startsWith("+380")) return s;
+            if (/^380\d{9}$/.test(s)) return "+" + s;
+            if (/^0\d{9}$/.test(s)) return "+38" + s;
+            if (s.startsWith("+")) return s;
+            return s;
+        };
+
+        const normalizeEmail = (email) =>
+            String(email || "")
+            .trim()
+            .toLowerCase();
+
+        // Проверка дубликатов через API
+        const checkDuplicates = async(parsedData) => {
+            setStatus("Загрузка данных из KeyCRM...");
+
+            try {
+                // URL API сервера (автоматически определяет локальный или продакшн)
+                const API_URL = window.location.hostname === 'localhost' ?
+                    "http://localhost:3000" // Для локальной разработки
+                    :
+                    "https://ваш-сервис.onrender.com"; // ← ЗАМЕНИТЕ после деплоя на Render
+
+                // Получаем всех покупателей из KeyCRM
+                const response = await fetch(
+                    `${API_URL}/buyers/all?max=10000`
+                );
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+
+                const {
+                    data: buyers
+                } = await response.json();
+                console.log("=== BUYERS FROM KEYCRM ===");
+                console.log(`Получено покупателей: ${buyers.length}`);
+                console.log("Первые 3 покупателя:", buyers.slice(0, 3));
+
+                // Создаем Set для быстрого поиска по всем полям
+                const existingPhones = new Set();
+                const existingEmails = new Set();
+                const existingCompanyNames = new Set();
+                const existingFullNames = new Set();
+
+                buyers.forEach((buyer) => {
+                    // Телефоны и email
+                    buyer.phones.forEach((p) => existingPhones.add(p));
+                    buyer.emails.forEach((e) => existingEmails.add(e));
+
+                    // Название компании/имя (нормализуем: убираем пробелы, приводим к нижнему регистру)
+                    if (buyer.name) {
+                        const normalized = buyer.name.trim().toLowerCase();
+                        existingCompanyNames.add(normalized);
+                        existingFullNames.add(normalized);
+                    }
+                });
+
+                console.log(`Уникальных телефонов в KeyCRM: ${existingPhones.size}`);
+                console.log(`Уникальных email в KeyCRM: ${existingEmails.size}`);
+                console.log(`Уникальных названий компаний/имен в KeyCRM: ${existingCompanyNames.size}`);
+
+                setStatus("Проверка дубликатов...");
+
+                // Проверяем каждую запись из файла
+                const results = parsedData.map((row, index) => {
+                    const phone = normalizeUaPhone(row["Телефон"] || "");
+                    const email = normalizeEmail(row["Email"] || "");
+                    const companyName = (row["Назва компанії"] || "").trim().toLowerCase();
+                    const fullName = (row["Повне ім'я"] || "").trim().toLowerCase();
+
+                    // Проверяем дубликаты по всем полям
+                    const isDuplicateByPhone = phone && existingPhones.has(phone);
+                    const isDuplicateByEmail = email && existingEmails.has(email);
+                    const isDuplicateByCompanyName = companyName && existingCompanyNames.has(companyName);
+                    const isDuplicateByFullName = fullName && existingFullNames.has(fullName);
+
+                    // Запись считается дубликатом если совпадает ХОТЯ БЫ ОДНО поле
+                    const isDuplicate = isDuplicateByPhone ||
+                        isDuplicateByEmail ||
+                        isDuplicateByCompanyName ||
+                        isDuplicateByFullName;
+
+                    // Формируем причину дубликата
+                    const reasons = [];
+                    if (isDuplicateByPhone) reasons.push("телефон");
+                    if (isDuplicateByEmail) reasons.push("email");
+                    if (isDuplicateByCompanyName) reasons.push("назва компанії");
+                    if (isDuplicateByFullName) reasons.push("повне ім'я");
+
+                    return {
+                        ...row,
+                        _isDuplicate: isDuplicate,
+                        _duplicateReason: reasons.join(", "),
+                        _rowNumber: index + 2,
+                    };
+                });
+
+                const duplicates = results.filter((r) => r._isDuplicate);
+                const unique = results.filter((r) => !r._isDuplicate);
+
+                console.log("=== РЕЗУЛЬТАТЫ ПРОВЕРКИ ===");
+                console.log(`Всего записей: ${results.length}`);
+                console.log(`Дубликатов: ${duplicates.length}`);
+                console.log(`Уникальных: ${unique.length}`);
+                if (duplicates.length > 0) {
+                    console.log("Примеры дубликатов:");
+                    duplicates.slice(0, 5).forEach(d => {
+                        console.log(`- Строка ${d._rowNumber}: "${d["Назва компанії"] || d["Повне ім'я"]}" (причина: ${d._duplicateReason})`);
+                    });
+                }
+
+                return {
+                    unique,
+                    duplicates,
+                    total: results.length
+                };
+            } catch (error) {
+                console.error("Ошибка при проверке дубликатов:", error);
+                throw new Error(`Не удалось проверить дубликаты: ${error.message}`);
+            }
+        };
+
+        // Создание Excel файла
+        const createExcelFile = (data, filename) => {
+            // Удаляем служебные поля перед экспортом
+            const cleanData = data.map((row) => {
+                const {
+                    _isDuplicate,
+                    _duplicateReason,
+                    _rowNumber,
+                    ...clean
+                } = row;
+                return clean;
+            });
+
+            // Создаем новую книгу
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(cleanData);
+
+            // Добавляем лист
+            XLSX.utils.book_append_sheet(wb, ws, "Уникальные лиды");
+
+            // Генерируем файл
+            const wbout = XLSX.write(wb, {
+                bookType: "xlsx",
+                type: "array"
+            });
+            const blob = new Blob([wbout], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+
+            // Создаем ссылку для скачивания
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        };
+
+        processBtn.addEventListener("click", async() => {
+            if (!currentFile) return;
+            setStatus("Обработка…");
+
+            try {
+                // Читаем файл как ArrayBuffer
+                const arrayBuf = await currentFile.arrayBuffer();
+                const ext = (currentFile.name.split(".").pop() || "").toLowerCase();
+
+                let parsedData = [];
+
+                // Парсим файл в зависимости от типа
+                if (ext === "csv") {
+                    // Для CSV файлов
+                    const text = new TextDecoder("utf-8").decode(arrayBuf);
+                    const lines = text.split("\n").filter((line) => line.trim());
+
+                    if (lines.length > 0) {
+                        // Первая строка - заголовки
+                        const headers = lines[0]
+                            .split(";")
+                            .map((h) => h.trim().replace(/^\uFEFF/, ""));
+
+                        // Остальные строки - данные
+                        for (let i = 1; i < lines.length; i++) {
+                            const values = lines[i].split(";");
+                            const row = {};
+                            headers.forEach((header, index) => {
+                                row[header] = values[index] ? values[index].trim() : "";
+                            });
+                            parsedData.push(row);
+                        }
+                    }
+                } else {
+                    // Для Excel файлов (.xlsx, .xls, .xlsm)
+                    const workbook = XLSX.read(arrayBuf, {
+                        type: "array",
+                    });
+
+                    // Берем первый лист
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+
+                    // Преобразуем в JSON (массив объектов)
+                    parsedData = XLSX.utils.sheet_to_json(worksheet, {
+                        defval: "", // Пустые ячейки будут пустыми строками
+                        raw: false, // Все значения как строки
+                    });
+                }
+
+                console.log("=== PARSED DATA ===");
+                console.log(`Всего строк в файле: ${parsedData.length}`);
+
+                if (parsedData.length === 0) {
+                    setStatus("Файл пустой или неправильный формат", "err");
+                    return;
+                }
+
+                // Проверяем дубликаты через API
+                const {
+                    unique,
+                    duplicates,
+                    total
+                } = await checkDuplicates(
+                    parsedData
+                );
+
+                // Создаем Excel файл только с уникальными записями
+                const baseFilename = currentFile.name.replace(/\.[^.]+$/, "");
+                const newFilename = `${baseFilename}_без_дублей.xlsx`;
+                let reportFilename = null;
+
+                createExcelFile(unique, newFilename);
+
+                // Также создаем отчет с дубликатами (опционально)
+                if (duplicates.length > 0) {
+                    reportFilename = `${baseFilename}_дубликаты_отчет.xlsx`;
+                    createExcelFile(duplicates, reportFilename);
+                }
+
+                setStatus(
+                    `✔ Готово! Уникальных: ${unique.length} из ${total}. Дублей: ${duplicates.length}`,
+                    "ok"
+                );
+
+                console.log("=== ФАЙЛЫ СОЗДАНЫ ===");
+                console.log(
+                    `1. ${newFilename} - ${unique.length} уникальных записей`
+                );
+                if (duplicates.length > 0 && reportFilename) {
+                    console.log(
+                        `2. ${reportFilename} - ${duplicates.length} дубликатов`
+                    );
+                }
+            } catch (error) {
+                console.error("Ошибка при обработке:", error);
+                setStatus(`Ошибка: ${error.message}`, "err");
+            }
+        });
+
+        templateBtn.addEventListener("click", () => {
+            // TODO: подменить на реальный .xlsx шаблон Gravity.
+            // Сейчас отдадим пустой CSV с заголовками по стандарту — чтобы было с чего начать.
+            const headers = [
+                "Назва компанії",
+                "Телефон",
+                "Регіон основний",
+                "Основний вид діяльності",
+                "Клас об'єктів основний",
+                "Основний тип об'єктів",
+                "Професійність",
+                "Зацікавленість у співпраці",
+                "Розмір компанії",
+                "Повне ім'я",
+                "Назва ліда",
+                "Джерело",
+                "Додаткові види діяльності",
+                "Регіони додаткові",
+                "Клас об'єктів додатковий",
+                "Додатковий тип об'єктів",
+                "Досвід роботи (років)",
+                "Соціальні мережі(Компанії)",
+                "Email",
+                "Соціальні мережі(людина)",
+            ];
+            const csv = "\uFEFF" + headers.join(";") + "\n";
+            const blob = new Blob([csv], {
+                type: "text/csv;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "gravity_template.csv";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        });
+    </script>
+</body>
+
+</html>

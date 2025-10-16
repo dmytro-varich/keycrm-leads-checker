@@ -1,0 +1,23 @@
+{
+    "name": "keycrm-leads-checker",
+    "version": "1.0.0",
+    "description": "Duplicate checker for KeyCRM leads from Excel/CSV files",
+    "main": "server.js",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": ["keycrm", "crm", "duplicate-checker", "excel"],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "dependencies": {
+        "body-parser": "^2.2.0",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^5.1.0",
+        "morgan": "^1.10.1"
+    }
+}
