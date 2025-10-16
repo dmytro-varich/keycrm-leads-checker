@@ -11,7 +11,16 @@ const BASE_URL = "https://openapi.keycrm.app/v1";
 const KEYCRM_API_KEY = process.env.KEYCRM_API_KEY;
 
 // --- middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://dmytro-varich.github.io/keycrm-leads-checker/'  // ← ваш домен GitHub Pages
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true,
+  optionsSuccessStatus: 200
+}));
 app.use(express.json({ limit: "5mb" }));
 app.use(morgan("dev"));
 

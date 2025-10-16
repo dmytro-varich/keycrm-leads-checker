@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6EA8FE"/>
+      <stop offset="1" stop-color="#9A7BFF"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="64" height="64" rx="14" ry="14" fill="url(#g)"/>
+  <!-- File shape with folded corner -->
+  <path d="M22 18a4 4 0 0 1 4-4h12l8 8v26a4 4 0 0 1-4 4H26a4 4 0 0 1-4-4V18z" fill="#ffffff" fill-opacity=".96"/>
+  <path d="M38 14v8h8" fill="none" stroke="#ffffff" stroke-opacity=".96" stroke-width="2"/>
+  <!-- Check mark -->
+  <path d="M24 38l7 7 13-13" fill="none" stroke="#4DD4AC" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+</svg>
