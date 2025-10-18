@@ -276,7 +276,7 @@
         <header class="hero">
             <h1>Импорт лидов • Обновление Excel</h1>
             <p class="subtitle">
-                Загрузите исходный файл (.xlsx/.xls/.csv) — получите обновлённый Excel в фирменном формате. Валидации и проверку дублей по API подключим на следующем шаге.
+                Загрузите исходный файл (.xlsx/.xls/.csv) — получите обновлённый Excel в фирменном формате. Валидации и проверку дублей по API.
             </p>
         </header>
 
@@ -374,10 +374,6 @@
                 </div>
             </div>
         </section>
-
-        <p class="footer">
-            v0 • UI-макет. JS-обработчик файла и запросы к KeyCRM API помечены в коде как <code>TODO</code>.
-        </p>
     </div>
 
     <script>
@@ -559,35 +555,64 @@
                 const existingCompanyNames = new Set();
                 const existingFullNames = new Set();
 
+                // Создаем Map для быстрого поиска ПОЛНЫХ данных покупателя по разным полям
+                const buyersByPhone = new Map();
+                const buyersByEmail = new Map();
+                const buyersByCompanyName = new Map();
+                const buyersByFullName = new Map();
+
                 buyers.forEach((buyer) => {
                     // Телефоны и email
-                    buyer.phones.forEach((p) => existingPhones.add(p));
-                    buyer.emails.forEach((e) => existingEmails.add(e));
+                    buyer.phones.forEach((p) => {
+                        existingPhones.add(p);
+                        buyersByPhone.set(p, buyer);
+                    });
+                    buyer.emails.forEach((e) => {
+                        existingEmails.add(e);
+                        buyersByEmail.set(e, buyer);
+                    });
 
                     // Название компании/имя (нормализуем: убираем пробелы, приводим к нижнему регистру)
                     if (buyer.name) {
                         const normalized = buyer.name.trim().toLowerCase();
                         existingCompanyNames.add(normalized);
                         existingFullNames.add(normalized);
+                        buyersByCompanyName.set(normalized, buyer);
+                        buyersByFullName.set(normalized, buyer);
                     }
                 });
 
-                console.log(`Уникальных телефонов в KeyCRM: ${existingPhones.size}`);
-                console.log(`Уникальных email в KeyCRM: ${existingEmails.size}`);
-                console.log(`Уникальных названий компаний/имен в KeyCRM: ${existingCompanyNames.size}`);
+                console.log(`Уникальних телефонів в KeyCRM: ${existingPhones.size}`);
+                console.log(`Уникальних email в KeyCRM: ${existingEmails.size}`);
+                console.log(`Уникальних назв компаній/імен в KeyCRM: ${existingCompanyNames.size}`);
 
-                setStatus("Проверка дубликатов...");
+                setStatus("Перевірка дублікатів...");
+
+                console.log("\n=== ПОЧАТОК ПЕРЕВІРКИ КОЖНОГО ЗАПИСУ ===");
 
                 // Проверяем каждую запись из файла
                 const results = parsedData.map((row, index) => {
-                    const phone = normalizeUaPhone(row["Телефон"] || "");
-                    const email = normalizeEmail(row["Email"] || "");
+                    // ИСПРАВЛЕНО: разбиваем телефоны на массив, если их несколько через запятую
+                    const phoneRaw = row["Телефон"] || "";
+                    const phones = phoneRaw
+                        .split(/[,;]/) // Разделяем по запятой или точке с запятой
+                        .map(p => normalizeUaPhone(p.trim())) // Нормализуем каждый
+                        .filter(p => p); // Убираем пустые
+
+                    // ИСПРАВЛЕНО: разбиваем email тоже, если их несколько
+                    const emailRaw = row["Email"] || "";
+                    const emails = emailRaw
+                        .split(/[,;]/)
+                        .map(e => normalizeEmail(e.trim()))
+                        .filter(e => e);
+
                     const companyName = (row["Назва компанії"] || "").trim().toLowerCase();
                     const fullName = (row["Повне ім'я"] || "").trim().toLowerCase();
 
                     // Проверяем дубликаты по всем полям
-                    const isDuplicateByPhone = phone && existingPhones.has(phone);
-                    const isDuplicateByEmail = email && existingEmails.has(email);
+                    // ИСПРАВЛЕНО: проверяем КАЖДЫЙ телефон из массива
+                    const isDuplicateByPhone = phones.some(phone => existingPhones.has(phone));
+                    const isDuplicateByEmail = emails.some(email => existingEmails.has(email));
                     const isDuplicateByCompanyName = companyName && existingCompanyNames.has(companyName);
                     const isDuplicateByFullName = fullName && existingFullNames.has(fullName);
 
@@ -604,13 +629,90 @@
                     if (isDuplicateByCompanyName) reasons.push("назва компанії");
                     if (isDuplicateByFullName) reasons.push("повне ім'я");
 
-                    return {
+                    // ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ КАЖДОЙ ЗАПИСИ
+                    console.log(`\n--- Запись ${index + 1} (строка Excel: ${index + 2}) ---`);
+                    console.log(`📋 Исходные данные из файла:`);
+                    console.log(`   Компания: "${row["Назва компанії"] || "(пусто)"}"`);
+                    console.log(`   Полное имя: "${row["Повне ім'я"] || "(пусто)"}"`);
+                    console.log(`   Телефон: "${phoneRaw || "(пусто)"}"`);
+                    console.log(`   Email: "${emailRaw || "(пусто)"}"`);
+
+                    console.log(`\n🔍 Нормализованные данные для проверки:`);
+                    console.log(`   Телефоны (массив): [${phones.map(p => '"' + p + '"').join(", ")}]`);
+                    console.log(`   Email (массив): [${emails.map(e => '"' + e + '"').join(", ")}]`);
+                    console.log(`   Компания нормализованная: "${companyName || "(пусто)"}"`);
+                    console.log(`   Полное имя нормализованное: "${fullName || "(пусто)"}"`);
+
+                    console.log(`\n⚖️ Результаты сравнения с KeyCRM:`);
+                    console.log(`   Телефон найден в базе: ${isDuplicateByPhone ? '❌ ДА (ДУБЛИКАТ)' : '✅ НЕТ (уникален)'}`);
+                    if (isDuplicateByPhone) {
+                        const foundPhones = phones.filter(p => existingPhones.has(p));
+                        console.log(`      → Найденные телефоны: ${foundPhones.join(", ")}`);
+                    }
+                    console.log(`   Email найден в базе: ${isDuplicateByEmail ? '❌ ДА (ДУБЛИКАТ)' : '✅ НЕТ (уникален)'}`);
+                    if (isDuplicateByEmail) {
+                        const foundEmails = emails.filter(e => existingEmails.has(e));
+                        console.log(`      → Найденные email: ${foundEmails.join(", ")}`);
+                    }
+                    console.log(`   Компания найдена в базе: ${isDuplicateByCompanyName ? '❌ ДА (ДУБЛИКАТ)' : '✅ НЕТ (уникален)'}`);
+                    console.log(`   Полное имя найдено в базе: ${isDuplicateByFullName ? '❌ ДА (ДУБЛИКАТ)' : '✅ НЕТ (уникален)'}`);
+
+                    console.log(`\n📊 ИТОГ:`);
+                    if (isDuplicate) {
+                        console.log(`   ❌ ДУБЛИКАТ - причина: ${reasons.join(", ")}`);
+                    } else {
+                        console.log(`   ✅ УНИКАЛЬНАЯ ЗАПИСЬ - все поля не найдены в KeyCRM`);
+                    }
+
+                    // Находим полные данные покупателя из KeyCRM (по первому найденному совпадению)
+                    let keyCRMBuyer = null;
+                    if (isDuplicateByPhone && phones.length > 0) {
+                        // Ищем по первому найденному телефону
+                        const foundPhone = phones.find(p => existingPhones.has(p));
+                        if (foundPhone) {
+                            keyCRMBuyer = buyersByPhone.get(foundPhone);
+                        }
+                    } else if (isDuplicateByEmail && emails.length > 0) {
+                        const foundEmail = emails.find(e => existingEmails.has(e));
+                        if (foundEmail) {
+                            keyCRMBuyer = buyersByEmail.get(foundEmail);
+                        }
+                    } else if (isDuplicateByCompanyName) {
+                        keyCRMBuyer = buyersByCompanyName.get(companyName);
+                    } else if (isDuplicateByFullName) {
+                        keyCRMBuyer = buyersByFullName.get(fullName);
+                    }
+
+                    // Формируем объект результата
+                    const result = {
                         ...row,
                         _isDuplicate: isDuplicate,
                         _duplicateReason: reasons.join(", "),
                         _rowNumber: index + 2,
                     };
+
+                    // Если дубликат - добавляем данные из KeyCRM
+                    if (isDuplicate && keyCRMBuyer) {
+                        result["[KeyCRM] ID"] = keyCRMBuyer.id || "";
+                        result["[KeyCRM] Назва"] = keyCRMBuyer.name || "";
+                        result["[KeyCRM] Телефони"] = keyCRMBuyer.phones.join(", ") || "";
+                        result["[KeyCRM] Email"] = keyCRMBuyer.emails.join(", ") || "";
+                        result["[KeyCRM] Джерело"] = keyCRMBuyer.source || "";
+                        result["[KeyCRM] Менеджер"] = keyCRMBuyer.manager || "";
+                        result["[KeyCRM] Теги"] = keyCRMBuyer.tags || "";
+                        result["[KeyCRM] Коментар"] = keyCRMBuyer.comment || "";
+
+                        console.log(`\n🔍 Знайдено в KeyCRM:`);
+                        console.log(`   ID: ${keyCRMBuyer.id}`);
+                        console.log(`   Назва: ${keyCRMBuyer.name}`);
+                        console.log(`   Телефони: ${keyCRMBuyer.phones.join(", ")}`);
+                        console.log(`   Email: ${keyCRMBuyer.emails.join(", ")}`);
+                    }
+
+                    return result;
                 });
+
+                console.log("\n=== КОНЕЦ ПРОВЕРКИ ЗАПИСЕЙ ===\n");
 
                 const duplicates = results.filter((r) => r._isDuplicate);
                 const unique = results.filter((r) => !r._isDuplicate);

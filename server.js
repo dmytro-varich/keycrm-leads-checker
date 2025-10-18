@@ -15,7 +15,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://dmytro-varich.github.io'  // ← ваш домен GitHub Pages
+    'https://dmytro-varich.github.io'  
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true,
