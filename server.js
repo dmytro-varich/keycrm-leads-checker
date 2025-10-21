@@ -12,14 +12,18 @@ const KEYCRM_API_KEY = process.env.KEYCRM_API_KEY;
 
 // --- middleware
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'https://dmytro-varich.github.io'  
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true,
-  optionsSuccessStatus: 200
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:8080',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:8080',
+        'http://localhost:5500',
+        'http://127.0.0.1:5500',
+        'https://dmytro-varich.github.io'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true,
+    optionsSuccessStatus: 200
 }));
 app.use(express.json({ limit: "5mb" }));
 app.use(morgan("dev"));
@@ -78,7 +82,7 @@ async function keycrm(path, { method = "GET", headers = {}, body } = {}) {
 }
 
 // --- Трансформер покупателя в «канон» для сверки
-function mapBuyer(b) {
+function mapBuyer(b, companyData = null) {
     // разные аккаунты могут хранить поля по-разному
     const id = (b && b.id) || (b && b.buyer_id) || null;
     const name =
@@ -94,16 +98,84 @@ function mapBuyer(b) {
         .map(normalizeEmail)
         .filter(Boolean);
 
+    // ID компании из buyer
+    const companyId = (b && b.company_id) || null;
+
+    // Социальные сети из компании (если переданы данные)
+    let socialNetworks = "";
+    if (companyData && companyData.extrafields) {
+        const socialField = companyData.extrafields.find(
+            field => field.name === "Соціальні мережі"
+        );
+        if (socialField && socialField.value) {
+            socialNetworks = String(socialField.value).trim();
+        }
+    }
+
     // ключи для дедупликации
     const dedupe = [
         ...phones.map((p) => `tel:${p}`),
         ...emails.map((e) => `email:${e}`),
     ];
 
-    return { id, name, phones, emails, dedupe };
+    return {
+        id,
+        name,
+        phones,
+        emails,
+        companyId,
+        socialNetworks,
+        company: companyData || null,
+        dedupe
+    };
 }
 
 // ================== ROUTES ==================
+
+// Health check с проверкой ключа
+app.get("/", (req, res) => {
+    res.json({
+        status: "ok",
+        hasApiKey: !!KEYCRM_API_KEY,
+        apiKeyLength: KEYCRM_API_KEY ? KEYCRM_API_KEY.length : 0,
+        apiKeyPreview: KEYCRM_API_KEY ? `${KEYCRM_API_KEY.slice(0, 8)}...${KEYCRM_API_KEY.slice(-8)}` : null,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Получить данные о компании по ID
+// Пример: GET /companies/12345?include=custom_fields
+app.get("/companies/:companyId", async(req, res) => {
+    try {
+        const { companyId } = req.params;
+
+        if (!companyId) {
+            return res.status(400).json({ error: "companyId обязателен" });
+        }
+
+        // Добавляем include=custom_fields для получения extrafields
+        const json = await keycrm(`/companies/${companyId}?include=custom_fields`);
+
+        res.json(json);
+    } catch (err) {
+        console.error(`Ошибка при получении компании ${req.params.companyId}:`, err);
+        res.status(500).json({ error: String(err.message || err) });
+    }
+});
+
+// RAW данные из KeyCRM — все поля без обработки
+// Пример: GET /buyers/raw?page=1&per_page=5
+app.get("/buyers/raw", async(req, res) => {
+            try {
+                const qs = new URLSearchParams(req.query).toString();
+                const json = await keycrm(`/buyer${qs ? `?${qs}` : ""}`);
+    // Возвращаем как есть из KeyCRM
+    res.json(json);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
 
 // 1) Прозрачный прокси на GET /buyer (с пагинацией и поиском)
 // Пример: GET /buyers?search=%2B380501234567&page=1&per_page=100
@@ -159,7 +231,12 @@ app.get("/buyers/all", async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 800));
     }
 
-    const data = acc.slice(0, max).map(mapBuyer);
+    console.log(`📊 Собрано ${acc.length} покупателей`);
+
+    // НЕ загружаем компании заранее - это слишком много запросов!
+    // Компании будут загружены фронтендом только для найденных дубликатов
+    const data = acc.slice(0, max).map(buyer => mapBuyer(buyer, null));
+
     console.log(`✅ ИТОГО собрано покупателей: ${data.length} (запрошено: ${max}, страниц: ${page - 1})`);
 
     res.json({
@@ -222,6 +299,8 @@ app.get("/test-pages", async(req, res) => {
 // ================== START ==================
 app.listen(PORT, () => {
     console.log(`🚀 API запущен: http://localhost:${PORT}`);
-    console.log(`→ GET /buyers        (прокси KeyCRM GET /buyer)`);
-    console.log(`→ GET /buyers/all    (соберёт все страницы до лимита)`);
+    console.log(`→ GET /                     (health check)`);
+    console.log(`→ GET /buyers               (прокси KeyCRM GET /buyer)`);
+    console.log(`→ GET /buyers/all           (соберёт все страницы + данные компаний)`);
+    console.log(`→ GET /companies/:id        (получить данные компании по ID)`);
 });
