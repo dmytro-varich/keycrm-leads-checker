@@ -531,33 +531,40 @@
                 console.log(`🌐 Определён режим: ${isLocalhost ? 'ЛОКАЛЬНЫЙ' : 'ПРОДАКШН'}`);
                 console.log(`🔗 API URL: ${API_URL}`);
 
-                // Получаем всех покупателей из KeyCRM
-                const response = await fetch(
-                    `${API_URL}/buyers/all?max=10000`
-                );
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
+                // ШАГ 1: Получаем всех покупателей из KeyCRM
+                setStatus("Загрузка покупателей из KeyCRM...");
+                const buyersResponse = await fetch(`${API_URL}/buyers/all?max=10000`);
+                if (!buyersResponse.ok) {
+                    throw new Error(`API error: ${buyersResponse.status}`);
                 }
 
-                const {
-                    data: buyers
-                } = await response.json();
+                const { data: buyers } = await buyersResponse.json();
                 console.log("=== BUYERS FROM KEYCRM ===");
                 console.log(`Получено покупателей: ${buyers.length}`);
                 console.log("Первые 3 покупателя:", buyers.slice(0, 3));
 
+                // ШАГ 2: Получаем ВСЕ компании из KeyCRM (один раз!)
+                setStatus("Загрузка компаний из KeyCRM...");
+                const companiesResponse = await fetch(`${API_URL}/companies/all?max=5000`);
+                if (!companiesResponse.ok) {
+                    throw new Error(`API error (companies): ${companiesResponse.status}`);
+                }
+
+                const { data: companies } = await companiesResponse.json();
+                console.log("=== COMPANIES FROM KEYCRM ===");
+                console.log(`Получено компаний: ${companies.length}`);
+                console.log("Первые 3 компании:", companies.slice(0, 3));
+
                 // Создаем Set для быстрого поиска по всем полям
                 const existingPhones = new Set();
                 const existingEmails = new Set();
-                const existingCompanyNames = new Set();
-                const existingFullNames = new Set();
+                const existingSocialNetworks = new Set(); // ← НОВОЕ: для соц. сетей
 
                 // Создаем Map для быстрого поиска ПОЛНЫХ данных покупателя по разным полям
                 const buyersByPhone = new Map();
                 const buyersByEmail = new Map();
-                const buyersByCompanyName = new Map();
-                const buyersByFullName = new Map();
 
+                // Заполняем индексы из buyers (телефоны и email)
                 buyers.forEach((buyer) => {
                     // Телефоны и email
                     buyer.phones.forEach((p) => {
@@ -568,134 +575,79 @@
                         existingEmails.add(e);
                         buyersByEmail.set(e, buyer);
                     });
+                });
 
-                    // Название компании/имя (нормализуем: убираем пробелы, приводим к нижнему регистру)
-                    if (buyer.name) {
-                        const normalized = buyer.name.trim().toLowerCase();
-                        existingCompanyNames.add(normalized);
-                        existingFullNames.add(normalized);
-                        buyersByCompanyName.set(normalized, buyer);
-                        buyersByFullName.set(normalized, buyer);
+                // Заполняем индексы из companies (соц. сети)
+                companies.forEach((company) => {
+                    // Ищем custom_fields с названием "Соціальні мережі"
+                    if (company.custom_fields && Array.isArray(company.custom_fields)) {
+                        const socialField = company.custom_fields.find(
+                            field => field.name === "Соціальні мережі"
+                        );
+
+                        if (socialField && socialField.value) {
+                            const socialNetwork = String(socialField.value).trim().toLowerCase();
+                            if (socialNetwork) {
+                                existingSocialNetworks.add(socialNetwork);
+                                console.log(`   ✓ Компания ID ${company.id}: "${socialNetwork}"`);
+                            }
+                        }
                     }
                 });
 
-                console.log(`Уникальних телефонів в KeyCRM: ${existingPhones.size}`);
-                console.log(`Уникальних email в KeyCRM: ${existingEmails.size}`);
-                console.log(`Уникальних назв компаній/імен в KeyCRM: ${existingCompanyNames.size}`);
+                console.log(`\n📊 СТАТИСТИКА:`);
+                console.log(`   Уникальних телефонів в KeyCRM: ${existingPhones.size}`);
+                console.log(`   Уникальних email в KeyCRM: ${existingEmails.size}`);
+                console.log(`   Уникальних соц. мереж в KeyCRM: ${existingSocialNetworks.size}`);
 
                 setStatus("Перевірка дублікатів...");
 
                 console.log("\n=== ПОЧАТОК ПЕРЕВІРКИ КОЖНОГО ЗАПИСУ ===");
 
-                // Проверяем каждую запись из файла (используем for вместо map для async/await)
+                // Проверяем каждую запись из файла
                 const results = [];
 
                 for (let index = 0; index < parsedData.length; index++) {
                     const row = parsedData[index];
 
-                    // ИСПРАВЛЕНО: разбиваем телефоны на массив, если их несколько через запятую
+                    // Разбиваем телефоны на массив, если их несколько через запятую
                     const phoneRaw = row["Телефон"] || "";
                     const phones = phoneRaw
                         .split(/[,;]/) // Разделяем по запятой или точке с запятой
                         .map(p => normalizeUaPhone(p.trim())) // Нормализуем каждый
                         .filter(p => p); // Убираем пустые
 
-                    // ИСПРАВЛЕНО: разбиваем email тоже, если их несколько
+                    // Разбиваем email тоже, если их несколько
                     const emailRaw = row["Email"] || "";
                     const emails = emailRaw
                         .split(/[,;]/)
                         .map(e => normalizeEmail(e.trim()))
                         .filter(e => e);
 
-                    const companyName = (row["Назва компанії"] || "").trim().toLowerCase();
-                    const fullName = (row["Повне ім'я"] || "").trim().toLowerCase();
-
-                    // Проверяем дубликаты по основным полям
-                    const isDuplicateByPhone = phones.some(phone => existingPhones.has(phone));
-                    const isDuplicateByEmail = emails.some(email => existingEmails.has(email));
-                    const isDuplicateByCompanyName = companyName && existingCompanyNames.has(companyName);
-                    const isDuplicateByFullName = fullName && existingFullNames.has(fullName);
-
-                    // ← ПРОВЕРКА СОЦ. СЕТИ КАК ОСНОВНОЕ ПОЛЕ (независимо от других полей)
-                    let isDuplicateBySocialNetwork = false;
+                    // Соц. сеть из файла (нормализуем)
                     const socialNetworkRaw = row["Соц. Мережа"] || row["Соціальні мережі"] || "";
                     const socialNetwork = socialNetworkRaw.trim().toLowerCase();
 
-                    // Если в Excel есть соц. сеть - проверяем ее для ВСЕХ buyers с companyId
-                    if (socialNetwork) {
-                        console.log(`   🔍 Проверка соц. сети "${socialNetwork}" по всем покупателям KeyCRM...`);
-
-                        // Проходим по ВСЕМ покупателям и проверяем их компании
-                        for (const buyer of buyers) {
-                            if (buyer.companyId) {
-                                try {
-                                    const isLocalhost = window.location.hostname === 'localhost' ||
-                                        window.location.hostname === '127.0.0.1' ||
-                                        window.location.hostname === '';
-
-                                    const API_URL = isLocalhost ?
-                                        "http://localhost:3000" : "https://keycrm-leads-checker.onrender.com";
-
-                                    const companyUrl = `${API_URL}/companies/${buyer.companyId}?include=custom_fields`;
-                                    const companyResponse = await fetch(companyUrl);
-
-                                    if (companyResponse.ok) {
-                                        const companyData = await companyResponse.json();
-
-                                        // Извлекаем соц. сеть из custom_fields
-                                        if (companyData.custom_fields) {
-                                            const socialField = companyData.custom_fields.find(
-                                                field => field.name === "Соціальні мережі"
-                                            );
-
-                                            if (socialField && socialField.value) {
-                                                const keyCRMSocial = String(socialField.value).trim().toLowerCase();
-
-                                                if (keyCRMSocial === socialNetwork) {
-                                                    isDuplicateBySocialNetwork = true;
-                                                    console.log(`      ✅ НАЙДЕНО СОВПАДЕНИЕ! Buyer ID ${buyer.id}, Company ID ${buyer.companyId}, Соц. сеть: "${keyCRMSocial}"`);
-                                                    break; // Нашли совпадение - прекращаем поиск
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Небольшая задержка чтобы не словить 429
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                } catch (err) {
-                                    console.error(`      ⚠ Ошибка при проверке компании ${buyer.companyId}:`, err.message);
-                                }
-                            }
-                        }
-
-                        if (!isDuplicateBySocialNetwork) {
-                            console.log(`      ❌ Соц. сеть "${socialNetwork}" не найдена в KeyCRM`);
-                        }
-                    }
+                    // Проверяем дубликаты
+                    const isDuplicateByPhone = phones.some(phone => existingPhones.has(phone));
+                    const isDuplicateByEmail = emails.some(email => existingEmails.has(email));
+                    const isDuplicateBySocialNetwork = socialNetwork && existingSocialNetworks.has(socialNetwork);
 
                     // Запись считается дубликатом если совпадает ХОТЯ БЫ ОДНО поле
-                    const isDuplicate = isDuplicateByPhone ||
-                        isDuplicateByEmail ||
-                        isDuplicateByCompanyName ||
-                        isDuplicateByFullName ||
-                        isDuplicateBySocialNetwork;
+                    const isDuplicate = isDuplicateByPhone || isDuplicateByEmail || isDuplicateBySocialNetwork;
 
                     // Формируем причину дубликата
                     const reasons = [];
                     if (isDuplicateByPhone) reasons.push("телефон");
                     if (isDuplicateByEmail) reasons.push("email");
-                    if (isDuplicateByCompanyName) reasons.push("назва компанії");
-                    if (isDuplicateByFullName) reasons.push("повне ім'я");
                     if (isDuplicateBySocialNetwork) reasons.push("соц. мережа");
 
-                    // ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ КАЖДОЙ ЗАПИСИ
+                    // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ КАЖДОЙ ЗАПИСИ
                     console.log(`\n--- Запись ${index + 1} (строка Excel: ${index + 2}) ---`);
                     console.log(`📋 Исходные данные из файла:`);
-                    console.log(`   Компания: "${row["Назва компанії"] || "(пусто)"}"`);
-                    console.log(`   Полное имя: "${row["Повне ім'я"] || "(пусто)"}"`);
                     console.log(`   Телефон: "${phoneRaw || "(пусто)"}"`);
                     console.log(`   Email: "${emailRaw || "(пусто)"}"`);
-                    console.log(`   Соц. мережа: "${socialNetworkRaw || "(пусто)"}"`); // ← НОВОЕ
+                    console.log(`   Соц. мережа: "${socialNetworkRaw || "(пусто)"}"`);
 
                     console.log(`\n🔍 Нормализованные данные для проверки:`);
                     console.log(`   Телефоны (массив): [${phones.map(p => '"' + p + '"').join(", ")}]`);

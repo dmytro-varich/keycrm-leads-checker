@@ -81,8 +81,36 @@ async function keycrm(path, { method = "GET", headers = {}, body } = {}) {
     return json;
 }
 
+// --- Кеш компаний в Map (для быстрого доступа по ID)
+const companiesCache = new Map(); // Map<companyId, companyData>
+
+// Функция для получения компании по ID (с кешем)
+async function getCompanyById(companyId) {
+    if (!companyId) return null;
+    
+    // Проверяем кеш
+    if (companiesCache.has(companyId)) {
+        console.log(`📦 Компания ${companyId} взята из кеша`);
+        return companiesCache.get(companyId);
+    }
+
+    // Загружаем из API
+    console.log(`🌐 Загрузка компании ${companyId} из KeyCRM`);
+    try {
+        const company = await keycrm(`/companies/${companyId}?include=custom_fields`);
+        
+        // Сохраняем в кеш
+        companiesCache.set(companyId, company);
+        
+        return company;
+    } catch (err) {
+        console.error(`❌ Ошибка загрузки компании ${companyId}:`, err.message);
+        return null;
+    }
+}
+
 // --- Трансформер покупателя в «канон» для сверки
-function mapBuyer(b, companyData = null) {
+function mapBuyer(b) {
     // разные аккаунты могут хранить поля по-разному
     const id = (b && b.id) || (b && b.buyer_id) || null;
     const name =
@@ -98,21 +126,10 @@ function mapBuyer(b, companyData = null) {
         .map(normalizeEmail)
         .filter(Boolean);
 
-    // ID компании из buyer
+    // ID компании из buyer (НЕ загружаем данные компании здесь!)
     const companyId = (b && b.company_id) || null;
 
-    // Социальные сети из компании (если переданы данные)
-    let socialNetworks = "";
-    if (companyData && companyData.extrafields) {
-        const socialField = companyData.extrafields.find(
-            field => field.name === "Соціальні мережі"
-        );
-        if (socialField && socialField.value) {
-            socialNetworks = String(socialField.value).trim();
-        }
-    }
-
-    // ключи для дедупликации
+    // ключи для дедупликации (только телефоны и email из buyer)
     const dedupe = [
         ...phones.map((p) => `tel:${p}`),
         ...emails.map((e) => `email:${e}`),
@@ -123,28 +140,124 @@ function mapBuyer(b, companyData = null) {
         name,
         phones,
         emails,
-        companyId,
-        socialNetworks,
-        company: companyData || null,
+        companyId, // возвращаем только ID, без данных компании
         dedupe
     };
 }
 
 // ================== ROUTES ==================
 
-// Health check с проверкой ключа
+// Health check с проверкой ключа и кеша
 app.get("/", (req, res) => {
     res.json({
         status: "ok",
         hasApiKey: !!KEYCRM_API_KEY,
         apiKeyLength: KEYCRM_API_KEY ? KEYCRM_API_KEY.length : 0,
         apiKeyPreview: KEYCRM_API_KEY ? `${KEYCRM_API_KEY.slice(0, 8)}...${KEYCRM_API_KEY.slice(-8)}` : null,
+        cache: {
+            companies_cached: companiesCache.size
+        },
         timestamp: new Date().toISOString()
     });
 });
 
-// Получить данные о компании по ID
-// Пример: GET /companies/12345?include=custom_fields
+// Очистить кеш компаний
+app.post("/cache/clear", (req, res) => {
+    const beforeCompanies = companiesCache.size;
+    
+    companiesCache.clear();
+    
+    console.log(`🗑️  Кеш очищен (компаний: ${beforeCompanies})`);
+    
+    res.json({ 
+        message: "Кеш очищен",
+        cleared: {
+            companies: beforeCompanies
+        }
+    });
+});
+
+// Получить список всех компаний
+// Пример: GET /companies?page=1&per_page=100
+app.get("/companies", async(req, res) => {
+    try {
+        const page = req.query.page || 1;
+        const per_page = req.query.per_page || 100;
+        
+        const qs = new URLSearchParams({
+            page: String(page),
+            per_page: String(per_page),
+            include: 'custom_fields' // Важно! Получаем extrafields
+        }).toString();
+        
+        const json = await keycrm(`/companies?${qs}`);
+        
+        res.json(json);
+    } catch (err) {
+        console.error("Ошибка при получении списка компаний:", err);
+        res.status(500).json({ error: String(err.message || err) });
+    }
+});
+
+// Получить все компании (с пагинацией)
+// Пример: GET /companies/all?max=5000
+app.get("/companies/all", async(req, res) => {
+    try {
+        const max = Number(req.query.max) || 5000;
+        const perPage = 100;
+        let page = 1;
+        const acc = [];
+        
+        console.log(`📥 Начинаем сбор компаний (макс: ${max}, per_page: ${perPage})`);
+        
+        while (acc.length < max && page <= 100) {
+            console.log(`   Запрос страницы ${page}...`);
+            
+            const qs = new URLSearchParams({
+                page: String(page),
+                per_page: String(perPage),
+                include: 'custom_fields'
+            }).toString();
+            
+            const json = await keycrm(`/companies?${qs}`);
+            const raw = toArray(json);
+            
+            console.log(`   ✓ Страница ${page}: получено ${raw.length} компаний`);
+            
+            if (raw.length === 0) {
+                console.log(`   ⚠ Страница ${page} пустая - останавливаем`);
+                break;
+            }
+            
+            // Сохраняем в кеш
+            for (const company of raw) {
+                if (company.id) {
+                    companiesCache.set(company.id, company);
+                }
+            }
+            
+            acc.push(...raw);
+            page++;
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        console.log(`📊 Собрано ${acc.length} компаний (в кеше: ${companiesCache.size})`);
+        
+        res.json({
+            total: acc.length,
+            cached: companiesCache.size,
+            pages_processed: page - 1,
+            data: acc.slice(0, max)
+        });
+    } catch (err) {
+        console.error("❌ Ошибка при сборе компаний:", err);
+        res.status(500).json({ error: String(err.message || err) });
+    }
+});
+
+// Получить данные о компании по ID (с кешем)
+// Пример: GET /companies/12345
 app.get("/companies/:companyId", async(req, res) => {
     try {
         const { companyId } = req.params;
@@ -153,12 +266,15 @@ app.get("/companies/:companyId", async(req, res) => {
             return res.status(400).json({ error: "companyId обязателен" });
         }
 
-        // Добавляем include=custom_fields для получения extrafields
-        const json = await keycrm(`/companies/${companyId}?include=custom_fields`);
+        const company = await getCompanyById(companyId);
+        
+        if (!company) {
+            return res.status(404).json({ error: "Компания не найдена" });
+        }
 
-        res.json(json);
+        res.json(company);
     } catch (err) {
-        console.error(`Ошибка при получении компании ${req.params.companyId}:`, err);
+        console.error(`❌ Ошибка при получении компании ${req.params.companyId}:`, err);
         res.status(500).json({ error: String(err.message || err) });
     }
 });
@@ -193,7 +309,7 @@ app.get("/buyers", async(req, res) => {
 });
 
 // 2) Сбор «всех» покупателей (пагинация по страницам до лимита)
-// Пример: GET /buyers/all?search=&per_page=100&max=5000
+// Пример: GET /buyers/all?search=&max=5000
 app.get("/buyers/all", async (req, res) => {
   try {
     const search = req.query.search || "";
@@ -233,9 +349,8 @@ app.get("/buyers/all", async (req, res) => {
 
     console.log(`📊 Собрано ${acc.length} покупателей`);
 
-    // НЕ загружаем компании заранее - это слишком много запросов!
-    // Компании будут загружены фронтендом только для найденных дубликатов
-    const data = acc.slice(0, max).map(buyer => mapBuyer(buyer, null));
+    // Маппим покупателей БЕЗ данных компаний
+    const data = acc.slice(0, max).map(buyer => mapBuyer(buyer));
 
     console.log(`✅ ИТОГО собрано покупателей: ${data.length} (запрошено: ${max}, страниц: ${page - 1})`);
 
@@ -299,8 +414,12 @@ app.get("/test-pages", async(req, res) => {
 // ================== START ==================
 app.listen(PORT, () => {
     console.log(`🚀 API запущен: http://localhost:${PORT}`);
-    console.log(`→ GET /                     (health check)`);
-    console.log(`→ GET /buyers               (прокси KeyCRM GET /buyer)`);
-    console.log(`→ GET /buyers/all           (соберёт все страницы + данные компаний)`);
-    console.log(`→ GET /companies/:id        (получить данные компании по ID)`);
+    console.log(`→ GET  /                       (health check + статус кеша)`);
+    console.log(`→ GET  /buyers                 (прокси KeyCRM GET /buyer)`);
+    console.log(`→ GET  /buyers/raw             (RAW данные покупателей)`);
+    console.log(`→ GET  /buyers/all             (все покупатели с пагинацией)`);
+    console.log(`→ GET  /companies              (список компаний с пагинацией)`);
+    console.log(`→ GET  /companies/all          (все компании + кеширование)`);
+    console.log(`→ GET  /companies/:id          (получить компанию по ID с кешем)`);
+    console.log(`→ POST /cache/clear            (очистить кеш компаний)`);
 });
