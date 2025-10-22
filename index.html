@@ -538,7 +538,9 @@
                     throw new Error(`API error: ${buyersResponse.status}`);
                 }
 
-                const { data: buyers } = await buyersResponse.json();
+                const {
+                    data: buyers
+                } = await buyersResponse.json();
                 console.log("=== BUYERS FROM KEYCRM ===");
                 console.log(`Получено покупателей: ${buyers.length}`);
                 console.log("Первые 3 покупателя:", buyers.slice(0, 3));
@@ -550,7 +552,9 @@
                     throw new Error(`API error (companies): ${companiesResponse.status}`);
                 }
 
-                const { data: companies } = await companiesResponse.json();
+                const {
+                    data: companies
+                } = await companiesResponse.json();
                 console.log("=== COMPANIES FROM KEYCRM ===");
                 console.log(`Получено компаний: ${companies.length}`);
                 console.log("Первые 3 компании:", companies.slice(0, 3));
@@ -624,14 +628,35 @@
                         .map(e => normalizeEmail(e.trim()))
                         .filter(e => e);
 
-                    // Соц. сеть из файла (нормализуем)
-                    const socialNetworkRaw = row["Соц. Мережа"] || row["Соціальні мережі"] || "";
+                    // Название компании и полное имя (для логирования)
+                    const companyName = (row["Назва компанії"] || "").trim().toLowerCase();
+                    const fullName = (row["Повне ім'я"] || "").trim().toLowerCase();
+
+                    // Соц. сеть из файла - ищем колонку без учёта регистра
+                    let socialNetworkRaw = "";
+                    let socialColumnName = "";
+
+                    // Ищем колонку по частичному совпадению (без учёта регистра)
+                    const socialKeys = Object.keys(row).filter(key => {
+                        const lowerKey = key.toLowerCase();
+                        return (lowerKey.includes("соц") && lowerKey.includes("мереж"));
+                    });
+
+                    if (socialKeys.length > 0) {
+                        socialColumnName = socialKeys[0];
+                        socialNetworkRaw = row[socialColumnName] || "";
+                    }
+
                     const socialNetwork = socialNetworkRaw.trim().toLowerCase();
 
                     // Проверяем дубликаты
                     const isDuplicateByPhone = phones.some(phone => existingPhones.has(phone));
                     const isDuplicateByEmail = emails.some(email => existingEmails.has(email));
                     const isDuplicateBySocialNetwork = socialNetwork && existingSocialNetworks.has(socialNetwork);
+
+                    // Для совместимости с логированием (не используем для проверки дубликатов)
+                    const isDuplicateByCompanyName = false;
+                    const isDuplicateByFullName = false;
 
                     // Запись считается дубликатом если совпадает ХОТЯ БЫ ОДНО поле
                     const isDuplicate = isDuplicateByPhone || isDuplicateByEmail || isDuplicateBySocialNetwork;
@@ -644,6 +669,8 @@
 
                     // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ КАЖДОЙ ЗАПИСИ
                     console.log(`\n--- Запись ${index + 1} (строка Excel: ${index + 2}) ---`);
+                    console.log(`📋 ВСЕ КОЛОНКИ В ФАЙЛЕ:`, Object.keys(row)); // ← НОВОЕ: покажет все колонки
+                    console.log(`🔍 Найдена колонка для соц. сети: "${socialColumnName || 'НЕ НАЙДЕНА'}"`); // ← НОВОЕ
                     console.log(`📋 Исходные данные из файла:`);
                     console.log(`   Телефон: "${phoneRaw || "(пусто)"}"`);
                     console.log(`   Email: "${emailRaw || "(пусто)"}"`);
